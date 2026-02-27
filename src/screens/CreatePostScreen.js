@@ -217,11 +217,18 @@ const CreatePostScreen = ({ navigation }) => {
         mediaType
       );
       
+      console.log('Create post result:', result);
+      
       if (result.error) {
         Alert.alert('Error', result.error);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        navigation.goBack();
+        Alert.alert('Success', 'Post created!', [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack()
+          }
+        ]);
       }
     } catch (error) {
       console.error('Error creating post:', error);

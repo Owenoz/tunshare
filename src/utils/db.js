@@ -37,6 +37,7 @@ export const getAllPosts = async () => {
   }
   
   try {
+    // Try with ordering first
     const postsQuery = query(
       collection(db, "posts"),
       orderBy("createdAt", "desc"),
@@ -57,8 +58,35 @@ export const getAllPosts = async () => {
     
     return posts;
   } catch (error) {
-    console.error('Error getting posts:', error);
-    return [];
+    console.error('Error getting posts with order, trying without:', error);
+    
+    // If ordering fails (e.g., missing index), try without order
+    try {
+      const simpleQuery = query(
+        collection(db, "posts"),
+        limit(100)
+      );
+      
+      const querySnapshot = await getDocs(simpleQuery);
+      const posts = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        posts.push({
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
+        });
+      });
+      
+      // Sort by createdAt manually
+      posts.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      
+      return posts;
+    } catch (fallbackError) {
+      console.error('Error getting posts (fallback):', fallbackError);
+      return [];
+    }
   }
 };
 

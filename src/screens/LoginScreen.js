@@ -224,7 +224,7 @@ const LoginScreen = ({ navigation }) => {
             <Text style={styles.adminTitle}>TUNESHARE</Text>
             <Text style={styles.adminCredentials}>
               SUPPONSERED BY{'\n'}
-              HIPLEX STAR
+              HIPLE STAR
             </Text>
           </View>
 
