@@ -1,4 +1,4 @@
-vercel --prod// Firebase Storage wrapper for TuneShare
+// Firebase Storage wrapper for TuneShare
 // Using Firebase Web SDK
 
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
