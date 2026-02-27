@@ -186,8 +186,9 @@ const CreatePostScreen = ({ navigation }) => {
     
     try {
       let finalMediaUrl = mediaUrl.trim();
+      let uploadWarning = null;
       
-      // If there's a local media file, upload it to Firebase Storage
+      // If there's a local media file, upload it to Firebase/Cloudinary Storage
       if (localMediaUri.trim()) {
         const uploadResult = await uploadMedia(
           localMediaUri.trim(), 
@@ -203,10 +204,17 @@ const CreatePostScreen = ({ navigation }) => {
         }
         
         finalMediaUrl = uploadResult.url;
+        
+        // Check if there's a warning from the upload
+        if (uploadResult.warning) {
+          uploadWarning = uploadResult.warning;
+          console.warn('Upload warning:', uploadWarning);
+        }
       }
       
       setIsUploading(false);
       
+      // Create the post
       const result = await createPost(
         user.uid, 
         user,
@@ -223,16 +231,27 @@ const CreatePostScreen = ({ navigation }) => {
         Alert.alert('Error', result.error);
       } else {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        Alert.alert('Success', 'Post created!', [
-          {
-            text: 'OK',
-            onPress: () => navigation.goBack()
-          }
-        ]);
+        
+        // Show success message with optional warning about upload
+        if (uploadWarning) {
+          Alert.alert('Success', 'Post created! Note: File upload service is not configured. Please use media URLs for best experience.', [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack()
+            }
+          ]);
+        } else {
+          Alert.alert('Success', 'Post created!', [
+            {
+              text: 'OK',
+              onPress: () => navigation.goBack()
+            }
+          ]);
+        }
       }
     } catch (error) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Something went wrong');
+      Alert.alert('Error', 'Something went wrong: ' + error.message);
     } finally {
       setIsLoading(false);
       setIsUploading(false);

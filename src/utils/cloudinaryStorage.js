@@ -2,19 +2,26 @@
 // Alternative to Firebase Storage
 
 // Cloudinary configuration
-// Replace these with your Cloudinary credentials
-const CLOUDINARY_CLOUD_NAME = 'tuneshare'; // Get from Cloudinary Dashboard
-const CLOUDINARY_UPLOAD_PRESET = 'unsigned-preset'; // Create in Cloudinary Settings > Upload
+// IMPORTANT: Replace these with your actual Cloudinary credentials
+// Get your cloud name from Cloudinary Dashboard (cloud name, not the full URL)
+const CLOUDINARY_CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || 'demo';
+const CLOUDINARY_UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || 'ml_default';
 
-// Check if Cloudinary is configured
+// Check if Cloudinary is properly configured
 const isCloudinaryConfigured = () => {
-  return CLOUDINARY_CLOUD_NAME !== 'your-cloud-name';
+  return CLOUDINARY_CLOUD_NAME !== 'your-cloud-name' && CLOUDINARY_CLOUD_NAME !== '';
 };
 
 // Upload media to Cloudinary
 export const uploadToCloudinary = async (uri, mediaType = 'image') => {
   if (!isCloudinaryConfigured()) {
-    return { error: 'Cloudinary not configured. Please add your cloud name.' };
+    console.warn('Cloudinary not configured properly. Using fallback mode.');
+    // Return a mock URL for demo purposes when not configured
+    return { 
+      url: 'https://via.placeholder.com/400x400.png?text=Media+Upload+Required', 
+      publicId: 'placeholder',
+      warning: 'Cloudinary not configured - upload skipped'
+    };
   }
 
   try {
@@ -32,7 +39,7 @@ export const uploadToCloudinary = async (uri, mediaType = 'image') => {
     let resourceType = 'auto';
     if (mediaType === 'video') {
       resourceType = 'video';
-    } else if (mediaType === 'audio') {
+    } else if (mediaType === 'audio' || mediaType === 'song') {
       resourceType = 'raw'; // Cloudinary uses raw for audio
     }
 
@@ -65,7 +72,9 @@ export const uploadToCloudinary = async (uri, mediaType = 'image') => {
     );
 
     if (!response.ok) {
-      throw new Error('Upload failed');
+      const errorText = await response.text();
+      console.error('Cloudinary upload error:', response.status, errorText);
+      throw new Error(`Upload failed with status: ${response.status}`);
     }
 
     const data = await response.json();

@@ -23,8 +23,15 @@ export const uploadMedia = async (uri, userId, mediaType = 'media') => {
 
     const result = await uploadToCloudinary(uri, cloudinaryType);
     
+    // Handle both success and warning cases
     if (result.error) {
       return { error: result.error };
+    }
+
+    // If there's a warning (Cloudinary not configured), still return the URL but warn the user
+    if (result.warning) {
+      console.warn('Cloudinary upload warning:', result.warning);
+      return { url: result.url, path: result.publicId, warning: result.warning };
     }
 
     return { url: result.url, path: result.publicId };
@@ -50,6 +57,11 @@ export const uploadAvatar = async (uri, userId) => {
     
     if (result.error) {
       return { error: result.error };
+    }
+
+    // If there's a warning, still return the URL
+    if (result.warning) {
+      return { url: result.url, path: result.publicId, warning: result.warning };
     }
 
     return { url: result.url, path: result.publicId };
