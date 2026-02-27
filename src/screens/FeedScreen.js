@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -8,8 +8,13 @@ import {
   SafeAreaView,
   StatusBar,
   RefreshControl,
-  Alert
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  ScrollView
 } from 'react-native';
+import { Audio, Video, ResizeMode } from 'expo-av';
 import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, TYPOGRAPHY } from '../constants/theme';
 import { 
   getAllPosts, 
@@ -25,6 +30,107 @@ const FeedScreen = ({ navigation }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Media playback state
+  const [currentPlayingId, setCurrentPlayingId] = useState(null);
+  const [mediaModalVisible, setMediaModalVisible] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState(null);
+  const [sound, setSound] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+
+  // Audio mode setup
+  useEffect(() => {
+    Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: false,
+      shouldDuckAndroid: true,
+    });
+    
+    return () => {
+      // Cleanup sound on unmount
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, []);
+
+  // Cleanup function for stopping playback
+  const stopPlayback = async () => {
+    try {
+      if (sound) {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+        setSound(null);
+      }
+      setIsPlaying(false);
+      setCurrentPlayingId(null);
+    } catch (error) {
+      console.error('Error stopping playback:', error);
+    }
+  };
+
+  // Play audio/song
+  const playAudio = async (url, postId) => {
+    try {
+      setIsLoadingMedia(true);
+      
+      // Stop any current playback
+      await stopPlayback();
+      
+      setCurrentPlayingId(postId);
+      
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: url },
+        { shouldPlay: true },
+        (playbackStatus) => {
+          if (playbackStatus.isLoaded && playbackStatus.didJustFinish) {
+            setIsPlaying(false);
+            setCurrentPlayingId(null);
+          }
+        }
+      );
+      
+      setSound(newSound);
+      setIsPlaying(true);
+      setIsLoadingMedia(false);
+    } catch (error) {
+      console.error('Error playing audio:', error);
+      setIsLoadingMedia(false);
+      setCurrentPlayingId(null);
+      Alert.alert('Error', 'Could not play audio. Please check the URL.');
+    }
+  };
+
+  // Toggle play/pause
+  const togglePlayback = async () => {
+    try {
+      if (!sound) return;
+      
+      if (isPlaying) {
+        await sound.pauseAsync();
+        setIsPlaying(false);
+      } else {
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
+    } catch (error) {
+      console.error('Error toggling playback:', error);
+    }
+  };
+
+  // Open media modal
+  const openMediaModal = (item) => {
+    setSelectedMedia(item);
+    setMediaModalVisible(true);
+  };
+
+  // Close media modal
+  const closeMediaModal = async () => {
+    await stopPlayback();
+    setMediaModalVisible(false);
+    setSelectedMedia(null);
+  };
 
   const loadData = useCallback(async () => {
     try {
@@ -133,6 +239,8 @@ const FeedScreen = ({ navigation }) => {
     const isLiked = currentUser && item.likes?.includes(currentUser.uid);
     const isAdmin = item.isAdmin;
     const isVideo = item.mediaType === 'video';
+    const isImage = item.mediaType === 'image';
+    const isCurrentlyPlaying = currentPlayingId === item.id;
     
     return (
       <View style={styles.postCard}>
@@ -158,8 +266,8 @@ const FeedScreen = ({ navigation }) => {
           </TouchableOpacity>
           
           <View style={styles.mediaTypeBadge}>
-            <Text style={styles.mediaTypeIcon}>{isVideo ? '🎬' : '🎵'}</Text>
-            <Text style={styles.mediaTypeText}>{isVideo ? 'Video' : 'Song'}</Text>
+            <Text style={styles.mediaTypeIcon}>{isVideo ? '🎬' : isImage ? '🖼️' : '🎵'}</Text>
+            <Text style={styles.mediaTypeText}>{isVideo ? 'Video' : isImage ? 'Image' : 'Song'}</Text>
           </View>
         </View>
 
@@ -170,15 +278,32 @@ const FeedScreen = ({ navigation }) => {
             <Text style={styles.description}>{item.description}</Text>
           )}
           
-          {/* Media Preview */}
+          {/* Media Preview - Clickable */}
           {item.mediaUrl && (
-            <TouchableOpacity style={styles.mediaPreview} activeOpacity={0.7}>
-              <View style={styles.mediaPlaceholder}>
-                <Text style={styles.mediaIcon}>{isVideo ? '▶️' : '🎧'}</Text>
-                <Text style={styles.mediaPlayText}>
-                  {isVideo ? 'Watch Video' : 'Play Song'}
-                </Text>
-              </View>
+            <TouchableOpacity 
+              style={styles.mediaPreview} 
+              activeOpacity={0.7}
+              onPress={() => openMediaModal(item)}
+            >
+              {isImage ? (
+                <Image 
+                  source={{ uri: item.mediaUrl }} 
+                  style={styles.mediaImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <View style={styles.mediaPlaceholder}>
+                  <Text style={styles.mediaIcon}>
+                    {isCurrentlyPlaying ? (isPlaying ? '⏸️' : '▶️') : (isVideo ? '▶️' : '🎧')}
+                  </Text>
+                  <Text style={styles.mediaPlayText}>
+                    {isCurrentlyPlaying 
+                      ? (isPlaying ? 'Playing...' : 'Paused') 
+                      : (isVideo ? 'Watch Video' : 'Play Song')
+                    }
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           )}
         </View>
@@ -292,7 +417,148 @@ const FeedScreen = ({ navigation }) => {
           />
         }
       />
+
+      {/* Media Modal */}
+      <MediaModal 
+        visible={mediaModalVisible} 
+        media={selectedMedia} 
+        onClose={closeMediaModal}
+        isPlaying={isPlaying}
+        onTogglePlay={togglePlayback}
+        isLoadingMedia={isLoadingMedia}
+        playAudio={playAudio}
+      />
     </SafeAreaView>
+  );
+};
+
+// Media Modal for viewing images and playing videos/audio
+const MediaModal = ({ visible, media, onClose, isPlaying, onTogglePlay, isLoadingMedia, playAudio }) => {
+  const [videoRef, setVideoRef] = useState(null);
+  const [localIsPlaying, setLocalIsPlaying] = useState(false);
+
+  // Reset state when modal opens/closes
+  useEffect(() => {
+    if (!visible) {
+      setLocalIsPlaying(false);
+    }
+  }, [visible]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (videoRef) {
+        videoRef.unloadAsync();
+      }
+    };
+  }, [videoRef]);
+
+  const handleVideoPlayPause = async () => {
+    if (videoRef) {
+      if (localIsPlaying) {
+        await videoRef.pauseAsync();
+      } else {
+        await videoRef.playAsync();
+      }
+      setLocalIsPlaying(!localIsPlaying);
+    }
+  };
+
+  const handleAudioPlay = () => {
+    if (media && media.mediaUrl && playAudio) {
+      playAudio(media.mediaUrl, media.id);
+    }
+  };
+
+  if (!media) return null;
+
+  const isImage = media.mediaType === 'image';
+  const isVideo = media.mediaType === 'video';
+  const isAudio = media.mediaType === 'song' || media.mediaType === 'audio';
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          {/* Close Button */}
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <Text style={styles.closeButtonText}>✕</Text>
+          </TouchableOpacity>
+
+          {/* Media Title */}
+          <Text style={styles.modalTitle}>{media.title}</Text>
+
+          {/* Media Content */}
+          <View style={styles.mediaContainer}>
+            {isImage ? (
+              <Image
+                source={{ uri: media.mediaUrl }}
+                style={styles.fullMediaImage}
+                resizeMode="contain"
+              />
+            ) : isVideo ? (
+              <View style={styles.videoWrapper}>
+                <Video
+                  ref={setVideoRef}
+                  source={{ uri: media.mediaUrl }}
+                  style={styles.videoPlayer}
+                  useNativeControls
+                  resizeMode={ResizeMode.CONTAIN}
+                  isLooping
+                  onPlaybackStatusUpdate={(status) => {
+                    if (status.isLoaded) {
+                      setLocalIsPlaying(status.isPlaying);
+                    }
+                  }}
+                />
+              </View>
+            ) : (
+              // Audio Player UI
+              <View style={styles.audioPlayerContainer}>
+                <View style={styles.audioAlbumArt}>
+                  <Text style={styles.audioIcon}>🎵</Text>
+                </View>
+                <Text style={styles.audioTitle}>{media.title}</Text>
+                {media.description && (
+                  <Text style={styles.audioDescription}>{media.description}</Text>
+                )}
+                <View style={styles.audioControls}>
+                  <TouchableOpacity 
+                    style={styles.playButton}
+                    onPress={handleAudioPlay}
+                    disabled={isLoadingMedia}
+                  >
+                    <Text style={styles.playButtonText}>
+                      {isLoadingMedia ? '⏳' : (isPlaying ? '⏸️' : '▶️')}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.genreTag}>{media.genre}</Text>
+                
+                {/* Now Playing Indicator */}
+                {isPlaying && (
+                  <View style={styles.nowPlayingIndicator}>
+                    <Text style={styles.nowPlayingText}>🔊 Now Playing...</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </View>
+
+          {/* Description */}
+          {media.description && (
+            <View style={styles.modalDescription}>
+              <Text style={styles.modalDescriptionText}>{media.description}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -594,6 +860,154 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.body,
     color: COLORS.textSecondary,
     textAlign: 'center',
+  },
+  
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  closeButtonText: {
+    fontSize: 20,
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  modalTitle: {
+    fontSize: TYPOGRAPHY.h2,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: SPACING.lg,
+    textAlign: 'center',
+  },
+  mediaContainer: {
+    width: '100%',
+    maxHeight: '60%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullMediaImage: {
+    width: '100%',
+    height: 400,
+    borderRadius: BORDER_RADIUS.md,
+  },
+  videoPlayer: {
+    width: '100%',
+    height: 300,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: '#000',
+  },
+  videoWrapper: {
+    width: '100%',
+    height: 300,
+    borderRadius: BORDER_RADIUS.md,
+    overflow: 'hidden',
+  },
+  audioPlayerContainer: {
+    alignItems: 'center',
+    padding: SPACING.xl,
+    backgroundColor: COLORS.surface,
+    borderRadius: BORDER_RADIUS.lg,
+    width: '100%',
+  },
+  audioAlbumArt: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SPACING.lg,
+  },
+  audioIcon: {
+    fontSize: 60,
+  },
+  audioTitle: {
+    fontSize: TYPOGRAPHY.h3,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
+    textAlign: 'center',
+  },
+  audioDescription: {
+    fontSize: TYPOGRAPHY.body,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.lg,
+    textAlign: 'center',
+  },
+  audioControls: {
+    marginVertical: SPACING.lg,
+  },
+  playButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...SHADOWS.neon,
+  },
+  playButtonText: {
+    fontSize: 30,
+  },
+  genreTag: {
+    fontSize: TYPOGRAPHY.caption,
+    color: COLORS.primary,
+    backgroundColor: 'rgba(168, 85, 247, 0.2)',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    borderRadius: BORDER_RADIUS.full,
+    marginTop: SPACING.md,
+  },
+  nowPlayingIndicator: {
+    marginTop: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    backgroundColor: COLORS.neonGreen,
+    borderRadius: BORDER_RADIUS.full,
+  },
+  nowPlayingText: {
+    fontSize: TYPOGRAPHY.caption,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
+  },
+  modalDescription: {
+    marginTop: SPACING.lg,
+    padding: SPACING.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: BORDER_RADIUS.md,
+    width: '100%',
+  },
+  modalDescriptionText: {
+    fontSize: TYPOGRAPHY.body,
+    color: '#fff',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  mediaImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: BORDER_RADIUS.md,
   },
 });
 
